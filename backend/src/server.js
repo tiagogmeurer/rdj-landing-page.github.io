@@ -29,10 +29,11 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const NODE_ENV = process.env.NODE_ENV || "development";
 const KIRVANO_WEBHOOK_SECRET = process.env.KIRVANO_WEBHOOK_SECRET || "";
+
 const APP_PUBLIC_BASE_URL =
   process.env.APP_PUBLIC_BASE_URL || "http://localhost:3000";
 
-// ✅ NOVO: base pública da API (Render / domínio real)
+// Base pública da API (Render / domínio real)
 const API_PUBLIC_BASE_URL =
   process.env.API_PUBLIC_BASE_URL || `http://localhost:${PORT}`;
 
@@ -48,6 +49,7 @@ app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 
 // CORS só é necessário se você for fazer fetch do front.
+// Mesmo assim, deixamos certinho.
 app.use(
   cors({
     origin: APP_PUBLIC_BASE_URL,
@@ -71,7 +73,7 @@ app.get("/healthz", (_req, res) => {
 });
 
 // ====== WEBHOOK KIRVANO ======
-app.post("/webhook/kirvano", (req, res) => {
+app.post("/webhook/kirvano", async (req, res) => {
   const incoming = req.headers["x-kirvano-token"];
   if (!KIRVANO_WEBHOOK_SECRET || incoming !== KIRVANO_WEBHOOK_SECRET) {
     return res.status(401).json({ ok: false, error: "unauthorized" });
@@ -91,9 +93,8 @@ app.post("/webhook/kirvano", (req, res) => {
   }
 
   const token = crypto.randomUUID();
-  createAccessToken(token, email);
+  await createAccessToken(token, email, SESSION_TTL_MS);
 
-  // ✅ ALTERADO: agora usa a base pública (local ou produção)
   const accessUrl = `${API_PUBLIC_BASE_URL}/acesso/${token}`;
 
   console.log("[kirvano] aprovado:", { email, token, accessUrl });
@@ -112,22 +113,30 @@ function setSessionCookie(res, sessionId) {
   });
 }
 
-function requireSession(req, res, next) {
+async function requireSession(req, res, next) {
   const sid = req.cookies?.[COOKIE_NAME];
   if (!sid) return res.status(401).send("Sem sessão. Volte ao seu link de acesso.");
-  const s = getSession(sid);
+
+  const s = await getSession(sid);
   if (!s) return res.status(401).send("Sessão expirada. Volte ao seu link de acesso.");
+
   req.session = s;
   return next();
 }
 
 // ====== CONFIRMA E-MAIL (tela simples) ======
-app.get("/acesso/:token", (req, res) => {
+app.get("/acesso/:token", async (req, res) => {
   const token = req.params.token;
-  const record = getAccessToken(token);
+  const record = await getAccessToken(token);
 
   if (!record) {
     return res.status(404).send("Link inválido ou expirado.");
+  }
+
+  if (record.consumed) {
+    return res
+      .status(410)
+      .send("Este link já foi usado. Verifique seu acesso ou solicite um novo.");
   }
 
   res.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -162,10 +171,17 @@ app.get("/acesso/:token", (req, res) => {
 app.post(
   "/acesso/:token",
   express.urlencoded({ extended: false }),
-  (req, res) => {
+  async (req, res) => {
     const token = req.params.token;
-    const record = getAccessToken(token);
+    const record = await getAccessToken(token);
+
     if (!record) return res.status(404).send("Link inválido ou expirado.");
+
+    if (record.consumed) {
+      return res
+        .status(410)
+        .send("Este link já foi usado. Verifique seu acesso ou solicite um novo.");
+    }
 
     const email = normalizeEmail(req.body?.email);
     if (!email || email !== record.email) {
@@ -173,10 +189,10 @@ app.post(
     }
 
     // token consumível
-    consumeAccessToken(token);
+    await consumeAccessToken(token);
 
     const sessionId = crypto.randomUUID();
-    createSession(sessionId, token, email, SESSION_TTL_MS);
+    await createSession(sessionId, token, email, SESSION_TTL_MS);
 
     // fingerprint light (opcional)
     record.lastIpHash = hashLight(getClientIp(req));
@@ -232,9 +248,9 @@ app.get("/download/material", requireSession, (_req, res) => {
   res.send("Aqui entraria o download real do seu material (protegido por sessão).");
 });
 
-app.post("/logout", (req, res) => {
+app.post("/logout", async (req, res) => {
   const sid = req.cookies?.[COOKIE_NAME];
-  if (sid) deleteSession(sid);
+  if (sid) await deleteSession(sid);
   res.clearCookie(COOKIE_NAME, { path: "/" });
   res.redirect(APP_PUBLIC_BASE_URL);
 });

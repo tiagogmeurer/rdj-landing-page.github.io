@@ -8,6 +8,7 @@
     "dev": "node src/server.js"
   },
   "dependencies": {
+    "@upstash/redis": "^1.36.1",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",

@@ -1,53 +1,46 @@
-// store.js — MVP in-memory
+import { redis } from "./redis.js";
 
-// token -> { email, createdAt, consumed, lastIpHash, lastUaHash }
-export const accessTokens = new Map();
+const TOKEN_PREFIX = "token:";
+const SESS_PREFIX = "sess:";
 
-// sessionId -> { token, email, createdAt, expiresAt }
-export const sessions = new Map();
-
-export function createAccessToken(token, email) {
-  accessTokens.set(token, {
+export async function createAccessToken(token, email, ttlMs) {
+  const key = TOKEN_PREFIX + token;
+  const value = {
     email: (email || "").trim().toLowerCase(),
     createdAt: Date.now(),
     consumed: false,
-    lastIpHash: null,
-    lastUaHash: null,
-  });
+  };
+  await redis.set(key, value, { ex: Math.ceil(ttlMs / 1000) });
 }
 
-export function getAccessToken(token) {
-  return accessTokens.get(token);
+export async function getAccessToken(token) {
+  return await redis.get(TOKEN_PREFIX + token);
 }
 
-export function consumeAccessToken(token) {
-  const obj = accessTokens.get(token);
+export async function consumeAccessToken(token) {
+  const key = TOKEN_PREFIX + token;
+  const obj = await redis.get(key);
   if (!obj) return false;
   obj.consumed = true;
-  accessTokens.set(token, obj);
+  // mantém a chave viva (TTL continua existindo, mas é OK para MVP)
+  await redis.set(key, obj);
   return true;
 }
 
-export function createSession(sessionId, token, email, ttlMs) {
-  const now = Date.now();
-  sessions.set(sessionId, {
+export async function createSession(sessionId, token, email, ttlMs) {
+  const key = SESS_PREFIX + sessionId;
+  const value = {
     token,
-    email,
-    createdAt: now,
-    expiresAt: now + ttlMs,
-  });
+    email: (email || "").trim().toLowerCase(),
+    createdAt: Date.now(),
+  };
+  await redis.set(key, value, { ex: Math.ceil(ttlMs / 1000) });
 }
 
-export function getSession(sessionId) {
-  const s = sessions.get(sessionId);
-  if (!s) return null;
-  if (Date.now() > s.expiresAt) {
-    sessions.delete(sessionId);
-    return null;
-  }
-  return s;
+export async function getSession(sessionId) {
+  return await redis.get(SESS_PREFIX + sessionId);
 }
 
-export function deleteSession(sessionId) {
-  sessions.delete(sessionId);
+export async function deleteSession(sessionId) {
+  await redis.del(SESS_PREFIX + sessionId);
 }
