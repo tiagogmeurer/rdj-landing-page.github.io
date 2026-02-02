@@ -370,7 +370,7 @@ app.get("/conteudo/videos", requireSession, (_req, res) => {
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto; background:#0b0b0f; color:#fff; padding:32px; }
     .box { max-width:980px; margin:0 auto; background:#12121a; border:1px solid rgba(255,255,255,.08); border-radius:16px; padding:24px; }
     .muted { color: rgba(255,255,255,.7); }
-    .row { display:flex; gap:10px; flex-wrap:wrap; margin:14px 0; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; margin:14px 0; align-items:center; }
     button { padding:10px 14px; border-radius:12px; border:1px solid rgba(255,255,255,.12); background:#0f0f16; color:#fff; cursor:pointer; }
     video { width: 100%; border-radius:14px; background:#000; margin-top:12px; }
     a { color:#fff; }
@@ -379,41 +379,71 @@ app.get("/conteudo/videos", requireSession, (_req, res) => {
 <body>
   <div class="box">
     <h2>Vídeos do Tutorial</h2>
-    <p class="muted">Clique para carregar o vídeo. O link expira e é renovado automaticamente quando você troca de vídeo.</p>
+    <p class="muted">
+      Clique para carregar o vídeo. O link expira e é renovado automaticamente quando você troca de vídeo.
+    </p>
 
     <div class="row">
-      <button onclick="loadVideo('intro')">RBDJ Tutorial — Intro</button>
-      <button onclick="loadVideo('guia')">RBDJ Tutorial — Guia</button>
-      <a href="/conteudo" style="align-self:center; margin-left:auto">← Voltar</a>
+      <button class="js-load-video" data-id="intro">RBDJ Tutorial — Intro</button>
+      <button class="js-load-video" data-id="guia">RBDJ Tutorial — Guia</button>
+      <a href="/conteudo" style="margin-left:auto">← Voltar</a>
     </div>
 
     <div id="status" class="muted"></div>
     <video id="player" controls playsinline></video>
   </div>
 
-<script>
-async function loadVideo(id) {
-  const status = document.getElementById('status');
-  const player = document.getElementById('player');
-  status.textContent = 'Carregando...';
-
-  try {
-    const res = await fetch('/api/media/' + id + '/url', { credentials: 'include' });
-    if (!res.ok) throw new Error('Falha ao obter URL');
-    const data = await res.json();
-    if (!data.url) throw new Error('URL inválida');
-
-    player.src = data.url;
-    await player.play().catch(() => {});
-    status.textContent = 'Pronto ✅';
-  } catch (e) {
-    status.textContent = 'Erro ao carregar vídeo. Recarregue a página.';
-  }
-}
-</script>
+  <!-- JS externo (evita inline script/onclick que o CSP bloqueia) -->
+  <script src="/assets/videos.js"></script>
 </body>
 </html>`);
 });
+
+// ====== JS EXTERNO PARA A PÁGINA DE VÍDEOS (CSP-safe) ======
+app.get("/assets/videos.js", requireSession, (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Content-Type", "application/javascript; charset=utf-8");
+  return res.end(`
+(() => {
+  const status = document.getElementById('status');
+  const player = document.getElementById('player');
+
+  async function loadVideo(id) {
+    status.textContent = 'Carregando...';
+
+    try {
+      const res = await fetch('/api/media/' + encodeURIComponent(id) + '/url', {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+
+      if (!res.ok) throw new Error('Falha ao obter URL');
+      const data = await res.json();
+      if (!data.url) throw new Error('URL inválida');
+
+      player.pause();
+      player.removeAttribute('src'); // limpa estado anterior
+      player.load();
+
+      player.src = data.url;
+
+      // alguns navegadores bloqueiam autoplay; ok
+      player.play().catch(() => {});
+      status.textContent = 'Pronto ✅';
+    } catch (e) {
+      console.error(e);
+      status.textContent = 'Erro ao carregar vídeo. Tente recarregar a página.';
+    }
+  }
+
+  document.querySelectorAll('.js-load-video').forEach(btn => {
+    btn.addEventListener('click', () => loadVideo(btn.dataset.id));
+  });
+})();
+`);
+});
+
+
 
 // ====== MEDIA URL (presigned) ======
 app.get("/api/media/:id/url", requireSession, async (req, res) => {
