@@ -74,6 +74,9 @@ app.use(
       directives: {
         ...helmet.contentSecurityPolicy.getDefaultDirectives(),
 
+          // ✅ LIBERA o <script> inline da página /conteudo/videos
+        "script-src": ["'self'", "'unsafe-inline'"],
+
         // Permite imagens locais + data: + remotas (https) (R2)
         "img-src": ["'self'", "data:", "blob:", "https:"],
 
