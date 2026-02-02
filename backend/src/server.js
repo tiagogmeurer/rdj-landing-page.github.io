@@ -65,7 +65,34 @@ const MEDIA_ALLOWLIST = {
 // ====== MIDDLEWARES ======
 app.use(
   helmet({
-    // deixa padrão; se depois você quiser CSP mais duro, a gente endurece
+    // 🔥 CSP ajustado para permitir assets do R2 via https (presigned URLs)
+    // - imagens/gifs do manual: <img src="https://...">
+    // - vídeos do player: <video src="https://...">
+    // - fetch do player continua same-origin (/api/media/...)
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+
+        // Permite imagens locais + data: + remotas (https) (R2)
+        "img-src": ["'self'", "data:", "blob:", "https:"],
+
+        // Permite mídia (vídeo/audio) remota via https (R2)
+        "media-src": ["'self'", "blob:", "https:"],
+
+        // Se algum asset do manual vier como fonte CSS, isso evita bloqueio
+        // (opcional, mas seguro)
+        "font-src": ["'self'", "data:", "https:"],
+
+        // Mantém fetch/xhr apenas no mesmo host (sua API)
+        // (se um dia você buscar de fora, adiciona aqui)
+        "connect-src": ["'self'"],
+
+        // Evita bloqueio por se você abrir o HTML do manual em nova guia
+        // e ele tentar navegar para assets / links
+        "frame-ancestors": ["'none'"],
+      },
+    },
   })
 );
 
@@ -243,7 +270,6 @@ app.get("/conteudo", requireSession, (req, res) => {
     .muted { color: rgba(255,255,255,.7); }
     .row { display:flex; flex-wrap:wrap; gap:12px; margin-top:16px; }
     .card { border:1px solid rgba(255,255,255,.08); border-radius:14px; padding:16px; background:#0f0f16; }
-    button.link { background:transparent; border:none; color:#fff; cursor:pointer; text-decoration:underline; padding:0; font:inherit; }
   </style>
 </head>
 <body>
@@ -317,7 +343,7 @@ app.get("/api/manual-assets/*", requireSession, async (req, res) => {
 
     const key = `${R2_MANUAL_PREFIX}${assetPath}`; // manual/images/...
 
-    const url = await generateSignedUrl(key, 300); // 5 min (pode reduzir depois)
+    const url = await generateSignedUrl(key, 300); // 5 min
     res.setHeader("Cache-Control", "no-store");
     return res.redirect(302, url);
   } catch (e) {
