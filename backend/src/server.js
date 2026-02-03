@@ -39,6 +39,9 @@ const PORT = process.env.PORT || 3001;
 const NODE_ENV = process.env.NODE_ENV || "development";
 const KIRVANO_WEBHOOK_SECRET = process.env.KIRVANO_WEBHOOK_SECRET || "";
 
+// ✅ ADMIN seed token (Render env)
+const ADMIN_SEED_TOKEN = process.env.ADMIN_SEED_TOKEN || "";
+
 const APP_PUBLIC_BASE_URL =
   process.env.APP_PUBLIC_BASE_URL || "http://localhost:3000";
 
@@ -183,6 +186,22 @@ async function requireSession(req, res, next) {
   req.session = s;
   return next();
 }
+
+// ====== ADMIN: seed entitlement manual (para compras antigas) ======
+app.post("/admin/entitle", async (req, res) => {
+  const t = req.headers["x-admin-token"];
+  if (!ADMIN_SEED_TOKEN || t !== ADMIN_SEED_TOKEN) {
+    return res.status(401).json({ ok: false, error: "unauthorized" });
+  }
+
+  const email = normalizeEmail(String(req.body?.email || "").slice(0, 254));
+  if (!email || !email.includes("@")) {
+    return res.status(400).json({ ok: false, error: "invalid_email" });
+  }
+
+  await setEntitlementActive(email, { source: "admin_seed" });
+  return res.json({ ok: true, email });
+});
 
 // ====== RECOVER: gera e-mail com link mágico ======
 app.post("/api/recover", async (req, res) => {
