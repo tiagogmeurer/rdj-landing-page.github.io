@@ -2,11 +2,21 @@ import { redis } from "./redis.js";
 
 const TOKEN_PREFIX = "token:";
 const SESS_PREFIX = "sess:";
+const RECOVER_PREFIX = "recover:"; // recover:<token> -> { email, createdAt }
+const ENT_PREFIX = "ent:"; // ent:<email> -> { active, email, updatedAt, ... }
+
+function normEmail(email) {
+  return (email || "").trim().toLowerCase();
+}
+
+// =====================
+// Access token (Kirvano)
+// =====================
 
 export async function createAccessToken(token, email, ttlMs) {
   const key = TOKEN_PREFIX + token;
   const value = {
-    email: (email || "").trim().toLowerCase(),
+    email: normEmail(email),
     createdAt: Date.now(),
     consumed: false,
   };
@@ -21,17 +31,30 @@ export async function consumeAccessToken(token) {
   const key = TOKEN_PREFIX + token;
   const obj = await redis.get(key);
   if (!obj) return false;
+
   obj.consumed = true;
-  // mantém a chave viva (TTL continua existindo, mas é OK para MVP)
-  await redis.set(key, obj);
+
+  // ✅ preserva TTL
+  const ttl = await redis.ttl(key); // segundos
+  if (ttl && ttl > 0) {
+    await redis.set(key, obj, { ex: ttl });
+  } else {
+    // fallback: não tinha TTL (ou já expirou)
+    await redis.set(key, obj);
+  }
+
   return true;
 }
+
+// =====================
+// Session
+// =====================
 
 export async function createSession(sessionId, token, email, ttlMs) {
   const key = SESS_PREFIX + sessionId;
   const value = {
     token,
-    email: (email || "").trim().toLowerCase(),
+    email: normEmail(email),
     createdAt: Date.now(),
   };
   await redis.set(key, value, { ex: Math.ceil(ttlMs / 1000) });
@@ -43,4 +66,65 @@ export async function getSession(sessionId) {
 
 export async function deleteSession(sessionId) {
   await redis.del(SESS_PREFIX + sessionId);
+}
+
+// =====================
+// Recovery (Magic link)
+// =====================
+
+export async function createRecoverToken(token, email, ttlMs) {
+  const key = RECOVER_PREFIX + token;
+  const value = {
+    email: normEmail(email),
+    createdAt: Date.now(),
+  };
+  await redis.set(key, value, { ex: Math.ceil(ttlMs / 1000) });
+}
+
+export async function getRecoverToken(token) {
+  return await redis.get(RECOVER_PREFIX + token);
+}
+
+// one-time
+export async function consumeRecoverToken(token) {
+  const key = RECOVER_PREFIX + token;
+  const obj = await redis.get(key);
+  if (!obj) return null;
+  await redis.del(key);
+  return obj; // { email, createdAt }
+}
+
+// =====================
+// Entitlement (direito de acesso)
+// =====================
+
+export async function setEntitlementActive(email, meta = {}) {
+  const key = ENT_PREFIX + normEmail(email);
+  const value = {
+    email: normEmail(email),
+    active: true,
+    updatedAt: Date.now(),
+    ...meta,
+  };
+  await redis.set(key, value); // sem TTL por padrão
+}
+
+export async function revokeEntitlement(email, meta = {}) {
+  const key = ENT_PREFIX + normEmail(email);
+  const value = {
+    email: normEmail(email),
+    active: false,
+    updatedAt: Date.now(),
+    ...meta,
+  };
+  await redis.set(key, value);
+}
+
+export async function getEntitlement(email) {
+  return await redis.get(ENT_PREFIX + normEmail(email));
+}
+
+export async function hasActiveEntitlement(email) {
+  const ent = await getEntitlement(email);
+  return !!(ent && ent.active === true);
 }

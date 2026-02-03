@@ -15,6 +15,10 @@ import {
   createSession,
   getSession,
   deleteSession,
+  setEntitlementActive,
+  hasActiveEntitlement,
+  createRecoverToken,
+  consumeRecoverToken,
 } from "./store.js";
 
 import {
@@ -26,6 +30,7 @@ import {
 } from "./utils.js";
 
 import { generateSignedUrl } from "./r2.js";
+import { sendRecoverEmail } from "./mailer.js";
 
 const app = express();
 
@@ -45,18 +50,18 @@ const COOKIE_NAME = process.env.COOKIE_NAME || "rdj_session";
 const COOKIE_DAYS = Number(process.env.COOKIE_DAYS || 30);
 const SESSION_TTL_MS = COOKIE_DAYS * 24 * 60 * 60 * 1000;
 
+const RECOVER_TTL_MINUTES = Number(process.env.RECOVER_TTL_MINUTES || 15);
+const RECOVER_TTL_MS = RECOVER_TTL_MINUTES * 60 * 1000;
+
 const isProd = NODE_ENV === "production";
 
 // ====== CONFIG: MANUAL + R2 KEYS ======
-// HTML do manual ficará dentro do backend (Render) para controle total:
 const MANUAL_HTML_FILENAME =
   process.env.MANUAL_HTML_FILENAME || "RobodoJobManualPrincipal.html";
 
-// R2 keys (paths dentro do bucket)
 const R2_MANUAL_PREFIX = "manual/"; // manual/images/...
 const R2_VIDEOS_PREFIX = "videos/"; // videos/intro.mp4, videos/guia.mp4
 
-// IDs públicos -> objetos no R2 (allowlist)
 const MEDIA_ALLOWLIST = {
   intro: `${R2_VIDEOS_PREFIX}intro.mp4`,
   guia: `${R2_VIDEOS_PREFIX}guia.mp4`,
@@ -65,34 +70,18 @@ const MEDIA_ALLOWLIST = {
 // ====== MIDDLEWARES ======
 app.use(
   helmet({
-    // 🔥 CSP ajustado para permitir assets do R2 via https (presigned URLs)
-    // - imagens/gifs do manual: <img src="https://...">
-    // - vídeos do player: <video src="https://...">
-    // - fetch do player continua same-origin (/api/media/...)
     contentSecurityPolicy: {
       useDefaults: true,
       directives: {
         ...helmet.contentSecurityPolicy.getDefaultDirectives(),
 
-          // ✅ LIBERA o <script> inline da página /conteudo/videos
+        // ✅ libera inline script (se ainda tiver algum)
         "script-src": ["'self'", "'unsafe-inline'"],
 
-        // Permite imagens locais + data: + remotas (https) (R2)
         "img-src": ["'self'", "data:", "blob:", "https:"],
-
-        // Permite mídia (vídeo/audio) remota via https (R2)
         "media-src": ["'self'", "blob:", "https:"],
-
-        // Se algum asset do manual vier como fonte CSS, isso evita bloqueio
-        // (opcional, mas seguro)
         "font-src": ["'self'", "data:", "https:"],
-
-        // Mantém fetch/xhr apenas no mesmo host (sua API)
-        // (se um dia você buscar de fora, adiciona aqui)
         "connect-src": ["'self'"],
-
-        // Evita bloqueio por se você abrir o HTML do manual em nova guia
-        // e ele tentar navegar para assets / links
         "frame-ancestors": ["'none'"],
       },
     },
@@ -102,9 +91,16 @@ app.use(
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 
+// ✅ CORS robusto (aceita landing e app; permite requests sem Origin)
+const ALLOWED_ORIGINS = new Set([APP_PUBLIC_BASE_URL, API_PUBLIC_BASE_URL]);
+
 app.use(
   cors({
-    origin: APP_PUBLIC_BASE_URL,
+    origin(origin, cb) {
+      if (!origin) return cb(null, true); // curl / server-to-server
+      if (ALLOWED_ORIGINS.has(origin)) return cb(null, true);
+      return cb(new Error("Not allowed by CORS"));
+    },
     credentials: true,
   })
 );
@@ -143,6 +139,13 @@ app.post("/webhook/kirvano", async (req, res) => {
     return res.json({ ok: true, warning: "missing_email" });
   }
 
+  // ✅ Entitlement (verdade do acesso)
+  await setEntitlementActive(email, {
+    source: "kirvano",
+    event: "compra_aprovada",
+  });
+
+  // ✅ Link de primeira entrada (fluxo atual)
   const token = crypto.randomUUID();
   await createAccessToken(token, email, SESSION_TTL_MS);
 
@@ -154,14 +157,18 @@ app.post("/webhook/kirvano", async (req, res) => {
 
 // ====== HELPERS ======
 function setSessionCookie(res, sessionId) {
-  res.cookie(COOKIE_NAME, sessionId, {
+  const cookieOpts = {
     httpOnly: true,
     secure: isProd,
     sameSite: "lax",
     maxAge: SESSION_TTL_MS,
     path: "/",
-    domain: ".robodojob.com",
-  });
+  };
+
+  // ✅ só seta domain em produção
+  if (isProd) cookieOpts.domain = ".robodojob.com";
+
+  res.cookie(COOKIE_NAME, sessionId, cookieOpts);
 }
 
 async function requireSession(req, res, next) {
@@ -176,6 +183,66 @@ async function requireSession(req, res, next) {
   req.session = s;
   return next();
 }
+
+// ====== RECOVER: gera e-mail com link mágico ======
+app.post("/api/recover", async (req, res) => {
+  // resposta neutra sempre (anti-enumeração)
+  const ok = () =>
+    res.status(200).json({
+      ok: true,
+      message:
+        "Se existir uma compra ativa, enviaremos um link de acesso para seu e-mail.",
+    });
+
+  try {
+    const email = normalizeEmail(String(req.body?.email || "").slice(0, 254));
+    if (!email || !email.includes("@")) return ok();
+
+    const entitled = await hasActiveEntitlement(email);
+    if (!entitled) return ok();
+
+    const token = crypto.randomUUID();
+    await createRecoverToken(token, email, RECOVER_TTL_MS);
+
+    const link = `${API_PUBLIC_BASE_URL}/acesso/recover/${token}`;
+    await sendRecoverEmail({ to: email, link });
+
+    return ok();
+  } catch (e) {
+    console.error("[recover] error:", e);
+    return ok();
+  }
+});
+
+// ====== RECOVER: consome token, cria sessão e redireciona ======
+app.get("/acesso/recover/:token", async (req, res) => {
+  try {
+    const token = String(req.params.token || "").trim();
+    if (!token) return res.redirect(`${APP_PUBLIC_BASE_URL}/acessar?e=invalid`);
+
+    const obj = await consumeRecoverToken(token); // one-time
+    if (!obj?.email) {
+      return res.redirect(`${APP_PUBLIC_BASE_URL}/acessar?e=expired`);
+    }
+
+    const email = normalizeEmail(obj.email);
+
+    // hard check
+    const entitled = await hasActiveEntitlement(email);
+    if (!entitled) {
+      return res.redirect(`${APP_PUBLIC_BASE_URL}/acessar?e=denied`);
+    }
+
+    const sessionId = crypto.randomUUID();
+    await createSession(sessionId, "recover", email, SESSION_TTL_MS);
+
+    setSessionCookie(res, sessionId);
+    return res.redirect("/conteudo");
+  } catch (e) {
+    console.error("[recover-redirect] error:", e);
+    return res.redirect(`${APP_PUBLIC_BASE_URL}/acessar?e=error`);
+  }
+});
 
 // ====== CONFIRMA E-MAIL (tela simples) ======
 app.get("/acesso/:token", async (req, res) => {
@@ -322,8 +389,6 @@ app.get("/conteudo/manual", requireSession, (req, res) => {
 
   let html = fs.readFileSync(manualPath, "utf8");
 
-  // Reescreve paths do manual: images/... -> /api/manual-assets/images/...
-  // (cobre src/href com aspas duplas e simples)
   html = html.replaceAll('src="images/', 'src="/api/manual-assets/images/');
   html = html.replaceAll("src='images/", "src='/api/manual-assets/images/");
   html = html.replaceAll('href="images/', 'href="/api/manual-assets/images/');
@@ -337,17 +402,17 @@ app.get("/conteudo/manual", requireSession, (req, res) => {
   return res.send(html);
 });
 
-// ====== ASSETS DO MANUAL (imagens/gifs no R2 via redirect assinado) ======
+// ====== ASSETS DO MANUAL (R2) ======
 app.get("/api/manual-assets/*", requireSession, async (req, res) => {
   try {
-    const assetPath = req.params[0]; // ex: "images/foo.gif"
+    const assetPath = req.params[0];
     if (!assetPath || assetPath.includes("..")) {
       return res.status(400).send("Bad request");
     }
 
-    const key = `${R2_MANUAL_PREFIX}${assetPath}`; // manual/images/...
+    const key = `${R2_MANUAL_PREFIX}${assetPath}`;
+    const url = await generateSignedUrl(key, 300);
 
-    const url = await generateSignedUrl(key, 300); // 5 min
     res.setHeader("Cache-Control", "no-store");
     return res.redirect(302, url);
   } catch (e) {
@@ -356,7 +421,7 @@ app.get("/api/manual-assets/*", requireSession, async (req, res) => {
   }
 });
 
-// ====== PÁGINA DE VÍDEOS (player) ======
+// ====== PÁGINA DE VÍDEOS ======
 app.get("/conteudo/videos", requireSession, (_req, res) => {
   res.setHeader("Cache-Control", "no-store");
   res.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -394,13 +459,12 @@ app.get("/conteudo/videos", requireSession, (_req, res) => {
     <video id="player" controls playsinline></video>
   </div>
 
-  <!-- JS externo (evita inline script/onclick que o CSP bloqueia) -->
   <script src="/assets/videos.js"></script>
 </body>
 </html>`);
 });
 
-// ====== JS EXTERNO PARA A PÁGINA DE VÍDEOS (CSP-safe) ======
+// ====== JS EXTERNO ======
 app.get("/assets/videos.js", requireSession, (_req, res) => {
   res.setHeader("Cache-Control", "no-store");
   res.setHeader("Content-Type", "application/javascript; charset=utf-8");
@@ -423,12 +487,10 @@ app.get("/assets/videos.js", requireSession, (_req, res) => {
       if (!data.url) throw new Error('URL inválida');
 
       player.pause();
-      player.removeAttribute('src'); // limpa estado anterior
+      player.removeAttribute('src');
       player.load();
 
       player.src = data.url;
-
-      // alguns navegadores bloqueiam autoplay; ok
       player.play().catch(() => {});
       status.textContent = 'Pronto ✅';
     } catch (e) {
@@ -444,8 +506,6 @@ app.get("/assets/videos.js", requireSession, (_req, res) => {
 `);
 });
 
-
-
 // ====== MEDIA URL (presigned) ======
 app.get("/api/media/:id/url", requireSession, async (req, res) => {
   try {
@@ -456,7 +516,7 @@ app.get("/api/media/:id/url", requireSession, async (req, res) => {
       return res.status(404).json({ error: "midia_nao_encontrada" });
     }
 
-    const url = await generateSignedUrl(key, 300); // 5 min
+    const url = await generateSignedUrl(key, 300);
     res.setHeader("Cache-Control", "no-store");
     return res.json({ url });
   } catch (e) {
