@@ -160,6 +160,7 @@ function setSessionCookie(res, sessionId) {
     sameSite: "lax",
     maxAge: SESSION_TTL_MS,
     path: "/",
+    domain: ".robodojob.com",
   });
 }
 
