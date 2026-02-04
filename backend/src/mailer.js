@@ -18,22 +18,38 @@ function buildTransport() {
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
 
-  return nodemailer.createTransport({
+  // Gmail: porta 587 com STARTTLS (secure=false + requireTLS=true)
+  const isGmail = String(host).toLowerCase().includes("gmail");
+
+  const transport = nodemailer.createTransport({
     host,
     port,
-    secure: port === 465,
+    secure: port === 465, // 465 = SSL direto, 587 = STARTTLS
     auth: { user, pass },
+
+    ...(isGmail
+      ? {
+          requireTLS: true,
+          tls: {
+            // Gmail é ok assim; evita alguns handshakes problemáticos em ambientes restritos
+            servername: host,
+          },
+        }
+      : {}),
   });
+
+  return transport;
 }
 
 export async function sendRecoverEmail({ to, link }) {
   const transport = buildTransport();
 
   const from =
-    process.env.MAIL_FROM || "Suporte Robô do Job <no-reply@robodojob.com>";
+    process.env.MAIL_FROM || "Robô do Job <tiagogmeurer@gmail.com>";
+
   const subject = "Seu link de acesso ao Robô do Job";
 
-  const text = `Opa! Aqui está seu link de acesso (válido por alguns minutos):
+  const text = `Aqui está seu link de acesso (válido por alguns minutos):
 ${link}
 
 Se você não solicitou isso, ignore este e-mail.`;
@@ -58,5 +74,34 @@ Se você não solicitou isso, ignore este e-mail.`;
     return;
   }
 
-  await transport.sendMail({ from, to, subject, text, html });
+  try {
+    // Ajuda a capturar erro de auth/TLS logo no começo
+    await transport.verify();
+
+    const info = await transport.sendMail({
+      from,
+      to,
+      subject,
+      text,
+      html,
+      replyTo: "tiagogmeurer@gmail.com",
+    });
+
+    console.log("[mailer] sent:", {
+      to,
+      messageId: info?.messageId,
+      response: info?.response,
+      accepted: info?.accepted,
+      rejected: info?.rejected,
+    });
+  } catch (err) {
+    console.error("[mailer] failed:", {
+      to,
+      message: err?.message,
+      code: err?.code,
+      response: err?.response,
+      responseCode: err?.responseCode,
+    });
+    throw err;
+  }
 }
