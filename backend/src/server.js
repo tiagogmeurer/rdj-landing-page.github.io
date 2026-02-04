@@ -42,12 +42,20 @@ const KIRVANO_WEBHOOK_SECRET = process.env.KIRVANO_WEBHOOK_SECRET || "";
 // ✅ ADMIN seed token (Render env)
 const ADMIN_SEED_TOKEN = process.env.ADMIN_SEED_TOKEN || "";
 
+// ✅ FRONT base URL (onde está o SPA)
 const APP_PUBLIC_BASE_URL =
   process.env.APP_PUBLIC_BASE_URL || "http://localhost:3000";
 
-// Base pública da API (Render / domínio real)
+// ✅ API base pública (Render / domínio real)
 const API_PUBLIC_BASE_URL =
   process.env.API_PUBLIC_BASE_URL || `http://localhost:${PORT}`;
+
+// ✅ CORS: allowlist por env (separado por vírgula)
+const APP_PUBLIC_ORIGINS_RAW = process.env.APP_PUBLIC_ORIGINS || "";
+const APP_PUBLIC_ORIGINS = APP_PUBLIC_ORIGINS_RAW
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 const COOKIE_NAME = process.env.COOKIE_NAME || "rdj_session";
 const COOKIE_DAYS = Number(process.env.COOKIE_DAYS || 30);
@@ -95,7 +103,13 @@ app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 
 // ✅ CORS robusto (aceita landing e app; permite requests sem Origin)
-const ALLOWED_ORIGINS = new Set([APP_PUBLIC_BASE_URL, API_PUBLIC_BASE_URL]);
+const DEFAULT_ALLOWED = new Set([APP_PUBLIC_BASE_URL, API_PUBLIC_BASE_URL]);
+
+// Se você definir APP_PUBLIC_ORIGINS, ele vira a fonte de verdade
+const ALLOWED_ORIGINS =
+  APP_PUBLIC_ORIGINS.length > 0
+    ? new Set(APP_PUBLIC_ORIGINS)
+    : DEFAULT_ALLOWED;
 
 app.use(
   cors({
@@ -202,7 +216,6 @@ app.post("/admin/entitle", async (req, res) => {
   await setEntitlementActive(email, { source: "admin_seed" });
   return res.json({ ok: true, email });
 });
-
 
 // ====== UI: /acessar (recuperar sessão) ======
 app.get("/acessar", (req, res) => {
@@ -326,7 +339,6 @@ app.get("/acessar", (req, res) => {
   }
 
   form.addEventListener('submit', async (ev) => {
-    // tenta via fetch (melhor UX); se falhar, cai no POST normal
     ev.preventDefault();
     const v = (email.value || '').trim();
     if (!v) return;
@@ -343,15 +355,13 @@ app.get("/acessar", (req, res) => {
         body: JSON.stringify({ email: v })
       });
 
-      // resposta sempre neutra
       if (!res.ok) throw new Error('bad_status');
 
       setState('Se existir uma compra ativa, enviaremos um link para seu e-mail. ✅', true);
       btn.disabled = false;
     }catch(err){
-      // fallback: deixa o form postar normalmente
       btn.disabled = false;
-      form.submit();
+      form.submit(); // fallback
     }
   });
 })();
@@ -360,9 +370,8 @@ app.get("/acessar", (req, res) => {
 </html>`);
 });
 
-// ====== Fallback sem JS: POST /acessar -> chama /api/recover e mostra confirmação ======
+// ====== Fallback sem JS: POST /acessar ======
 app.post("/acessar", express.urlencoded({ extended: false }), async (req, res) => {
-  // chama a mesma lógica do /api/recover (resposta neutra)
   const email = normalizeEmail(String(req.body?.email || "").slice(0, 254));
 
   try {
@@ -379,7 +388,6 @@ app.post("/acessar", express.urlencoded({ extended: false }), async (req, res) =
     console.error("[acessar-post] error:", e);
   }
 
-  // UI de confirmação (neutra)
   res.setHeader("Cache-Control", "no-store");
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   return res.end(`<!doctype html>
@@ -407,11 +415,8 @@ app.post("/acessar", express.urlencoded({ extended: false }), async (req, res) =
 </html>`);
 });
 
-
-
-// ====== RECOVER: gera e-mail com link mágico ======
+// ====== RECOVER: API (resposta neutra) ======
 app.post("/api/recover", async (req, res) => {
-  // resposta neutra sempre (anti-enumeração)
   const ok = () =>
     res.status(200).json({
       ok: true,
@@ -439,20 +444,19 @@ app.post("/api/recover", async (req, res) => {
   }
 });
 
-// ====== RECOVER: consome token, cria sessão e redireciona ======
+// ====== RECOVER: consome token, cria sessão e redireciona pro FRONT ======
 app.get("/acesso/recover/:token", async (req, res) => {
   try {
     const token = String(req.params.token || "").trim();
     if (!token) return res.redirect(`${APP_PUBLIC_BASE_URL}/acessar?e=invalid`);
 
-    const obj = await consumeRecoverToken(token); // one-time
+    const obj = await consumeRecoverToken(token);
     if (!obj?.email) {
       return res.redirect(`${APP_PUBLIC_BASE_URL}/acessar?e=expired`);
     }
 
     const email = normalizeEmail(obj.email);
 
-    // hard check
     const entitled = await hasActiveEntitlement(email);
     if (!entitled) {
       return res.redirect(`${APP_PUBLIC_BASE_URL}/acessar?e=denied`);
@@ -462,7 +466,9 @@ app.get("/acesso/recover/:token", async (req, res) => {
     await createSession(sessionId, "recover", email, SESSION_TTL_MS);
 
     setSessionCookie(res, sessionId);
-    return res.redirect("/conteudo");
+
+    // ✅ manda pro SPA do app
+    return res.redirect(`${APP_PUBLIC_BASE_URL}/conteudo#/`);
   } catch (e) {
     console.error("[recover-redirect] error:", e);
     return res.redirect(`${APP_PUBLIC_BASE_URL}/acessar?e=error`);
@@ -474,9 +480,7 @@ app.get("/acesso/:token", async (req, res) => {
   const token = req.params.token;
   const record = await getAccessToken(token);
 
-  if (!record) {
-    return res.status(404).send("Link inválido ou expirado.");
-  }
+  if (!record) return res.status(404).send("Link inválido ou expirado.");
 
   if (record.consumed) {
     return res
@@ -542,7 +546,9 @@ app.post(
     record.lastUaHash = hashLight(req.headers["user-agent"] || "");
 
     setSessionCookie(res, sessionId);
-    return res.redirect("/conteudo");
+
+    // ✅ manda pro SPA do app
+    return res.redirect(`${APP_PUBLIC_BASE_URL}/conteudo#/`);
   }
 );
 
