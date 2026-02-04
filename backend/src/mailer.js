@@ -1,55 +1,32 @@
-import nodemailer from "nodemailer";
+// src/mailer.js
+// Envio de e-mail por API (Resend) — evita SMTP (Render costuma bloquear 465/587)
+import "dotenv/config";
 
-function hasSmtp() {
+const RESEND_ENDPOINT = "https://api.resend.com/emails";
+
+function hasResend() {
+  return !!process.env.RESEND_API_KEY;
+}
+
+function getFrom() {
+  // Para o lançamento: use o padrão do Resend (onboarding@resend.dev)
+  // Depois, quando tiver e-mail no domínio, troque para algo tipo:
+  // "Robô do Job <suporte@robodojob.com>"
   return (
-    process.env.SMTP_HOST &&
-    process.env.SMTP_PORT &&
-    process.env.SMTP_USER &&
-    process.env.SMTP_PASS &&
-    process.env.MAIL_FROM
+    process.env.MAIL_FROM ||
+    "Robô do Job <onboarding@resend.dev>"
   );
 }
 
-function buildTransport() {
-  if (!hasSmtp()) return null;
-
-  const host = process.env.SMTP_HOST;
-  const port = Number(process.env.SMTP_PORT);
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
-
-  // Gmail: porta 587 com STARTTLS (secure=false + requireTLS=true)
-  const isGmail = String(host).toLowerCase().includes("gmail");
-
-  const transport = nodemailer.createTransport({
-    host,
-    port,
-    secure: port === 465, // 465 = SSL direto, 587 = STARTTLS
-    auth: { user, pass },
-
-    ...(isGmail
-      ? {
-          requireTLS: true,
-          tls: {
-            // Gmail é ok assim; evita alguns handshakes problemáticos em ambientes restritos
-            servername: host,
-          },
-        }
-      : {}),
-  });
-
-  return transport;
+function getReplyTo() {
+  // Seu e-mail real (pra responderem)
+  return process.env.MAIL_REPLY_TO || "tiagogmeurer@gmail.com";
 }
 
 export async function sendRecoverEmail({ to, link }) {
-  const transport = buildTransport();
-
-  const from =
-    process.env.MAIL_FROM || "Robô do Job <tiagogmeurer@gmail.com>";
-
   const subject = "Seu link de acesso ao Robô do Job";
 
-  const text = `Aqui está seu link de acesso (válido por alguns minutos):
+  const text = `Opa! Aqui está seu link de acesso (válido por alguns minutos):
 ${link}
 
 Se você não solicitou isso, ignore este e-mail.`;
@@ -66,42 +43,54 @@ Se você não solicitou isso, ignore este e-mail.`;
   <p style="color:#666;font-size:12px">Se você não solicitou isso, ignore este e-mail.</p>
 </div>`.trim();
 
-  if (!transport) {
-    console.log("\n=== [DEV] Recover email ===");
+  // DEV fallback (sem API key)
+  if (!hasResend()) {
+    console.log("\n=== [DEV] Recover email (sem RESEND_API_KEY) ===");
     console.log("To:", to);
     console.log("Link:", link);
-    console.log("=========================\n");
-    return;
+    console.log("=============================================\n");
+    return { ok: true, dev: true };
   }
 
   try {
-    // Ajuda a capturar erro de auth/TLS logo no começo
-    await transport.verify();
-
-    const info = await transport.sendMail({
-      from,
-      to,
+    const payload = {
+      from: getFrom(),
+      to: [String(to).trim().toLowerCase()],
       subject,
       text,
       html,
-      replyTo: "tiagogmeurer@gmail.com",
+      reply_to: getReplyTo(),
+    };
+
+    const res = await fetch(RESEND_ENDPOINT, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
     });
 
-    console.log("[mailer] sent:", {
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      console.error("[mailer] resend failed:", {
+        to,
+        status: res.status,
+        data,
+      });
+      // Não derruba o fluxo de recover — só loga
+      return { ok: false, status: res.status, data };
+    }
+
+    return { ok: true, id: data?.id };
+  } catch (e) {
+    console.error("[mailer] resend error:", {
       to,
-      messageId: info?.messageId,
-      response: info?.response,
-      accepted: info?.accepted,
-      rejected: info?.rejected,
+      message: e?.message,
+      name: e?.name,
     });
-  } catch (err) {
-    console.error("[mailer] failed:", {
-      to,
-      message: err?.message,
-      code: err?.code,
-      response: err?.response,
-      responseCode: err?.responseCode,
-    });
-    throw err;
+    // Não derruba o fluxo de recover — só loga
+    return { ok: false, error: e?.message || "unknown" };
   }
 }
