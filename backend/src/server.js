@@ -203,6 +203,212 @@ app.post("/admin/entitle", async (req, res) => {
   return res.json({ ok: true, email });
 });
 
+
+// ====== UI: /acessar (recuperar sessão) ======
+app.get("/acessar", (req, res) => {
+  const e = String(req.query?.e || "").toLowerCase();
+
+  const msgMap = {
+    expired: "Seu link expirou ou já foi usado. Solicite um novo abaixo.",
+    denied: "Não encontramos um acesso ativo para este e-mail.",
+    invalid: "Link inválido. Solicite um novo abaixo.",
+    error: "Ocorreu um erro. Tente novamente.",
+  };
+
+  const banner = msgMap[e] || "";
+
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  return res.end(`<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Robô do Job — Recuperar acesso</title>
+  <style>
+    :root{
+      --bg:#0b0b0f; --card:#12121a; --line:rgba(255,255,255,.10);
+      --muted:rgba(255,255,255,.75); --danger:#fe3b3b;
+      --ok:#30d158;
+    }
+    body{
+      margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto;
+      background:var(--bg); color:#fff; min-height:100vh;
+      display:flex; align-items:center; justify-content:center; padding:24px;
+    }
+    .card{
+      width:min(540px, 96vw);
+      background:var(--card);
+      border:1px solid var(--line);
+      border-radius:16px;
+      padding:22px;
+      box-shadow:0 20px 60px rgba(0,0,0,.35);
+    }
+    h1{ font-size:22px; margin:0 0 6px; }
+    p{ margin:0 0 14px; color:var(--muted); line-height:1.4; }
+    .banner{
+      border:1px solid rgba(254,59,59,.35);
+      background:rgba(254,59,59,.10);
+      color:#ffd2d2;
+      padding:10px 12px;
+      border-radius:12px;
+      margin:12px 0 14px;
+      display:${banner ? "block" : "none"};
+    }
+    input{
+      width:100%;
+      padding:14px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.14);
+      background:#0f0f16;
+      color:#fff;
+      outline:none;
+      font-size:15px;
+      box-sizing:border-box;
+    }
+    button{
+      width:100%;
+      margin-top:12px;
+      padding:14px;
+      border-radius:12px;
+      border:none;
+      background:var(--danger);
+      color:#fff;
+      font-weight:800;
+      cursor:pointer;
+      font-size:15px;
+    }
+    button:disabled{ opacity:.65; cursor:not-allowed; }
+    .status{
+      margin-top:12px;
+      color:var(--muted);
+      font-size:14px;
+      min-height:18px;
+    }
+    .hint{
+      margin-top:14px;
+      border-top:1px solid var(--line);
+      padding-top:12px;
+      font-size:13px;
+      color:rgba(255,255,255,.6);
+    }
+    a{ color:#fff; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Recuperar acesso</h1>
+    <p>Digite o e-mail usado na compra. Se existir um acesso ativo, vamos enviar um link temporário.</p>
+
+    <div class="banner">${banner}</div>
+
+    <form id="f" method="POST" action="/acessar" autocomplete="on">
+      <input id="email" name="email" type="email" placeholder="seuemail@exemplo.com" required />
+      <button id="btn" type="submit">Enviar link de acesso</button>
+      <div id="status" class="status"></div>
+    </form>
+
+    <div class="hint">
+      Dica: o link expira em alguns minutos e pode ser usado apenas uma vez.
+    </div>
+  </div>
+
+<script>
+(() => {
+  const form = document.getElementById('f');
+  const email = document.getElementById('email');
+  const btn = document.getElementById('btn');
+  const status = document.getElementById('status');
+
+  function setState(text, ok){
+    status.textContent = text || '';
+    status.style.color = ok ? 'var(--ok)' : 'var(--muted)';
+  }
+
+  form.addEventListener('submit', async (ev) => {
+    // tenta via fetch (melhor UX); se falhar, cai no POST normal
+    ev.preventDefault();
+    const v = (email.value || '').trim();
+    if (!v) return;
+
+    btn.disabled = true;
+    setState('Enviando...', false);
+
+    try{
+      const res = await fetch('/api/recover', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        credentials:'include',
+        cache:'no-store',
+        body: JSON.stringify({ email: v })
+      });
+
+      // resposta sempre neutra
+      if (!res.ok) throw new Error('bad_status');
+
+      setState('Se existir uma compra ativa, enviaremos um link para seu e-mail. ✅', true);
+      btn.disabled = false;
+    }catch(err){
+      // fallback: deixa o form postar normalmente
+      btn.disabled = false;
+      form.submit();
+    }
+  });
+})();
+</script>
+</body>
+</html>`);
+});
+
+// ====== Fallback sem JS: POST /acessar -> chama /api/recover e mostra confirmação ======
+app.post("/acessar", express.urlencoded({ extended: false }), async (req, res) => {
+  // chama a mesma lógica do /api/recover (resposta neutra)
+  const email = normalizeEmail(String(req.body?.email || "").slice(0, 254));
+
+  try {
+    if (email && email.includes("@")) {
+      const entitled = await hasActiveEntitlement(email);
+      if (entitled) {
+        const token = crypto.randomUUID();
+        await createRecoverToken(token, email, RECOVER_TTL_MS);
+        const link = `${API_PUBLIC_BASE_URL}/acesso/recover/${token}`;
+        await sendRecoverEmail({ to: email, link });
+      }
+    }
+  } catch (e) {
+    console.error("[acessar-post] error:", e);
+  }
+
+  // UI de confirmação (neutra)
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  return res.end(`<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Robô do Job — Recuperar acesso</title>
+  <style>
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto;background:#0b0b0f;color:#fff;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+    .card{width:min(540px,96vw);background:#12121a;border:1px solid rgba(255,255,255,.10);border-radius:16px;padding:22px}
+    h1{font-size:22px;margin:0 0 10px}
+    p{margin:0 0 12px;color:rgba(255,255,255,.75);line-height:1.4}
+    a{display:inline-block;margin-top:10px;color:#fff}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Pedido enviado ✅</h1>
+    <p>Se existir uma compra ativa, enviamos um link temporário para o e-mail informado.</p>
+    <p>Confira também a pasta de spam/promoções.</p>
+    <a href="/acessar">← Voltar</a>
+  </div>
+</body>
+</html>`);
+});
+
+
+
 // ====== RECOVER: gera e-mail com link mágico ======
 app.post("/api/recover", async (req, res) => {
   // resposta neutra sempre (anti-enumeração)
