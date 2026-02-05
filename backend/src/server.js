@@ -238,6 +238,11 @@ app.get("/acessar", (req, res) => {
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Robô do Job — Recuperar acesso</title>
+  <!-- Favicon -->
+<link rel="icon" type="image/png" href="https://www.robodojob.com/favicon.png" />
+<link rel="apple-touch-icon" href="https://www.robodojob.com/favicon.png" />
+<meta name="theme-color" content="#0b0b0f" />
+
   <style>
     :root{
       --bg:#0b0b0f; --card:#12121a; --line:rgba(255,255,255,.10);
@@ -565,6 +570,11 @@ app.get("/conteudo", requireSession, (req, res) => {
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Robô do Job — Conteúdo</title>
+  <!-- Favicon -->
+<link rel="icon" type="image/png" href="https://www.robodojob.com/favicon.png" />
+<link rel="apple-touch-icon" href="https://www.robodojob.com/favicon.png" />
+<meta name="theme-color" content="#0b0b0f" />
+
   <style>
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto; background:#0b0b0f; color:#fff; padding:32px; }
     .box { max-width:880px; margin:0 auto; background:#12121a; border:1px solid rgba(255,255,255,.08); border-radius:16px; padding:24px; }
