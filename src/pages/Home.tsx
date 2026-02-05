@@ -5,6 +5,8 @@ import Button from '../components/Button';
 import AccordionItem from '../components/Accordion';
 import { BENEFITS, TESTIMONIALS, FAQ_ITEMS, OFFER_PRICE } from '../constants';
 
+const RECOVER_URL = 'https://app.robodojob.com/acessar';
+
 const Home: React.FC = () => {
   const [timeLeft, setTimeLeft] = useState({ minutes: 14, seconds: 59 });
 
@@ -112,6 +114,17 @@ const Home: React.FC = () => {
             CRIAR ROBÔ DO JOB AGORA!
           </Button>
 
+          {/* ✅ Recuperar acesso */}
+          <div className="mt-4 flex justify-center">
+            <a
+              href={RECOVER_URL}
+              className="inline-flex items-center justify-center px-5 py-3 rounded-xl border border-white/15 bg-white/5 text-white/90 text-sm font-semibold hover:bg-white/10 transition-colors"
+              rel="noreferrer"
+            >
+              Já comprei • Recuperar acesso
+            </a>
+          </div>
+
           <p className="mt-4 text-xs text-gray-500 uppercase tracking-widest flex items-center justify-center gap-2">
             <ShieldCheck className="w-4 h-4 text-green-500" /> Compra 100% Segura e Discreta
           </p>
@@ -218,6 +231,17 @@ const Home: React.FC = () => {
               CRIAR MINHA MODELO AGORA
             </Button>
 
+            {/* ✅ Recuperar acesso (perto do checkout) */}
+            <div className="flex justify-center mb-6">
+              <a
+                href={RECOVER_URL}
+                className="inline-flex items-center justify-center px-5 py-3 rounded-xl border border-white/15 bg-white/5 text-white/90 text-sm font-semibold hover:bg-white/10 transition-colors"
+                rel="noreferrer"
+              >
+                Já comprei • Recuperar acesso
+              </a>
+            </div>
+
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs text-gray-400 border-t border-gray-800 pt-6">
               <div className="flex flex-col items-center gap-2">
                 <ShieldCheck className="w-6 h-6 text-brand-pink" />
@@ -266,8 +290,16 @@ const Home: React.FC = () => {
             O melhor método de criação de modelos de IA voltadas para o público adulto.
           </p>
 
-          {/* ✅ Botãozinho Afiliados */}
-          <div className="flex justify-center">
+          {/* ✅ Botões Footer */}
+          <div className="flex flex-col sm:flex-row gap-3 justify-center items-center">
+            <a
+              href={RECOVER_URL}
+              className="inline-flex items-center justify-center px-4 py-2 rounded-full border border-white/15 bg-white/5 text-white/90 text-xs font-bold uppercase tracking-widest hover:bg-white/10 transition-colors"
+              rel="noreferrer"
+            >
+              Recuperar acesso
+            </a>
+
             <Link
               to="/afiliados"
               className="inline-flex items-center justify-center px-4 py-2 rounded-full border border-brand-pink/40 bg-brand-pink/10 text-brand-pink text-xs font-bold uppercase tracking-widest hover:bg-brand-pink hover:text-white transition-colors"
