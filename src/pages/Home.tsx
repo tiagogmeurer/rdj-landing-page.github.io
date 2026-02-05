@@ -5,7 +5,8 @@ import Button from '../components/Button';
 import AccordionItem from '../components/Accordion';
 import { BENEFITS, TESTIMONIALS, FAQ_ITEMS, OFFER_PRICE } from '../constants';
 
-const RECOVER_URL = 'https://app.robodojob.com/acessar';
+const RECOVER_URL = 'https://app.robodojob.com/acessar#/';
+const KIRVANO_CHECKOUT_URL = 'https://pay.kirvano.com/d7a4f61a-b0e1-40ff-86ed-b23202a3380d';
 
 const Home: React.FC = () => {
   const [timeLeft, setTimeLeft] = useState({ minutes: 14, seconds: 59 });
@@ -16,14 +17,10 @@ const Home: React.FC = () => {
   useEffect(() => {
     const timer = setInterval(() => {
       setTimeLeft((prev) => {
-        if (prev.seconds > 0) {
-          return { ...prev, seconds: prev.seconds - 1 };
-        } else if (prev.minutes > 0) {
-          return { minutes: prev.minutes - 1, seconds: 59 };
-        } else {
-          clearInterval(timer);
-          return prev;
-        }
+        if (prev.seconds > 0) return { ...prev, seconds: prev.seconds - 1 };
+        if (prev.minutes > 0) return { minutes: prev.minutes - 1, seconds: 59 };
+        clearInterval(timer);
+        return prev;
       });
     }, 1000);
 
@@ -32,9 +29,11 @@ const Home: React.FC = () => {
 
   const scrollToCheckout = () => {
     const element = document.getElementById('offer');
-    if (element) {
-      element.scrollIntoView({ behavior: 'smooth' });
-    }
+    if (element) element.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  const goToCheckout = () => {
+    window.location.href = KIRVANO_CHECKOUT_URL;
   };
 
   const toggleSound = () => {
@@ -46,7 +45,6 @@ const Home: React.FC = () => {
 
   return (
     <div className="min-h-screen font-sans bg-brand-dark text-white selection:bg-brand-pink selection:text-white overflow-x-hidden">
-
       {/* Top Banner */}
       <div className="bg-gradient-to-r from-brand-accent to-brand-pink text-white text-center py-2 px-4 text-xs md:text-sm font-bold tracking-widest uppercase">
         <span className="animate-pulse">⚠️ Atenção: Acesso liberado por tempo limitado</span>
@@ -55,6 +53,17 @@ const Home: React.FC = () => {
       {/* Hero */}
       <header className="relative pt-12 pb-20 px-4 md:pt-20 md:pb-32 overflow-hidden">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-brand-pink/20 rounded-full blur-[120px] -z-10 opacity-60"></div>
+
+        {/* ✅ Acessar no topo */}
+        <div className="absolute top-4 right-4 z-20">
+          <a
+            href={RECOVER_URL}
+            className="inline-flex items-center justify-center px-4 py-2 rounded-full border border-white/15 bg-white/5 text-white/90 text-xs font-bold uppercase tracking-widest hover:bg-white/10 transition-colors"
+            rel="noreferrer"
+          >
+            Acessar
+          </a>
+        </div>
 
         <div className="max-w-4xl mx-auto text-center relative z-10">
           <div className="inline-block mb-6 px-4 py-1 border border-brand-pink/50 rounded-full bg-brand-pink/10 backdrop-blur-sm">
@@ -94,11 +103,7 @@ const Home: React.FC = () => {
             <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-black/10" />
 
             <div className="absolute bottom-4 right-4 bg-black/60 backdrop-blur-sm p-3 rounded-full border border-brand-pink/40 transition-all">
-              {isMuted ? (
-                <VolumeX className="w-5 h-5 text-white" />
-              ) : (
-                <Volume2 className="w-5 h-5 text-white" />
-              )}
+              {isMuted ? <VolumeX className="w-5 h-5 text-white" /> : <Volume2 className="w-5 h-5 text-white" />}
             </div>
 
             {isMuted && (
@@ -110,20 +115,10 @@ const Home: React.FC = () => {
             )}
           </div>
 
-          <Button onClick={scrollToCheckout} className="w-full md:w-auto min-w-[300px] text-xl">
+          {/* CTA Hero */}
+          <Button onClick={goToCheckout} className="w-full md:w-auto min-w-[300px] text-xl">
             CRIAR ROBÔ DO JOB AGORA!
           </Button>
-
-          {/* ✅ Recuperar acesso */}
-          <div className="mt-4 flex justify-center">
-            <a
-              href={RECOVER_URL}
-              className="inline-flex items-center justify-center px-5 py-3 rounded-xl border border-white/15 bg-white/5 text-white/90 text-sm font-semibold hover:bg-white/10 transition-colors"
-              rel="noreferrer"
-            >
-              Já comprei • Recuperar acesso
-            </a>
-          </div>
 
           <p className="mt-4 text-xs text-gray-500 uppercase tracking-widest flex items-center justify-center gap-2">
             <ShieldCheck className="w-4 h-4 text-green-500" /> Compra 100% Segura e Discreta
@@ -143,7 +138,10 @@ const Home: React.FC = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {BENEFITS.map((benefit, index) => (
-              <div key={index} className="glass-effect p-8 rounded-2xl hover:bg-brand-pink/5 transition-all duration-300 group">
+              <div
+                key={index}
+                className="glass-effect p-8 rounded-2xl hover:bg-brand-pink/5 transition-all duration-300 group"
+              >
                 <div className="mb-6 p-3 bg-brand-pink/10 rounded-xl inline-block group-hover:scale-110 transition-transform duration-300">
                   {benefit.icon}
                 </div>
@@ -172,7 +170,11 @@ const Home: React.FC = () => {
                 </div>
                 <p className="text-gray-300 text-sm mb-6 italic">"{testimonial.text}"</p>
                 <div className="flex items-center gap-4">
-                  <img src={testimonial.image} alt={testimonial.name} className="w-12 h-12 rounded-full border-2 border-brand-pink object-cover" />
+                  <img
+                    src={testimonial.image}
+                    alt={testimonial.name}
+                    className="w-12 h-12 rounded-full border-2 border-brand-pink object-cover"
+                  />
                   <div>
                     <h4 className="font-bold text-sm">{testimonial.name}</h4>
                     <p className="text-xs text-gray-500">{testimonial.location}</p>
@@ -204,9 +206,7 @@ const Home: React.FC = () => {
               Acesso Vitalício ao <br />Robô do Job
             </h2>
 
-            <p className="text-gray-400 mb-8">
-              Receba o método completo + Acesso à Comunidade VIP.
-            </p>
+            <p className="text-gray-400 mb-8">Receba o método completo + Acesso à Comunidade VIP.</p>
 
             <div className="mb-10">
               <span className="text-gray-500 text-lg line-through block mb-2">De R$ {OFFER_PRICE.original}</span>
@@ -222,25 +222,13 @@ const Home: React.FC = () => {
                 R$ {OFFER_PRICE.installments.split('R$ ')[1]}
               </div>
 
-              <p className="text-sm text-gray-400">
-                ou R$ {OFFER_PRICE.current} à vista
-              </p>
+              <p className="text-sm text-gray-400">ou R$ {OFFER_PRICE.current} à vista</p>
             </div>
 
-            <Button fullWidth className="text-xl md:text-2xl py-6 mb-4">
+            {/* CTA Offer */}
+            <Button fullWidth className="text-xl md:text-2xl py-6 mb-4" onClick={goToCheckout}>
               CRIAR MINHA MODELO AGORA
             </Button>
-
-            {/* ✅ Recuperar acesso (perto do checkout) */}
-            <div className="flex justify-center mb-6">
-              <a
-                href={RECOVER_URL}
-                className="inline-flex items-center justify-center px-5 py-3 rounded-xl border border-white/15 bg-white/5 text-white/90 text-sm font-semibold hover:bg-white/10 transition-colors"
-                rel="noreferrer"
-              >
-                Já comprei • Recuperar acesso
-              </a>
-            </div>
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs text-gray-400 border-t border-gray-800 pt-6">
               <div className="flex flex-col items-center gap-2">
@@ -267,9 +255,7 @@ const Home: React.FC = () => {
       {/* FAQ */}
       <section className="py-20 bg-brand-dark">
         <div className="max-w-3xl mx-auto px-4">
-          <h2 className="text-3xl md:text-4xl font-display font-bold text-center mb-12">
-            Perguntas Frequentes
-          </h2>
+          <h2 className="text-3xl md:text-4xl font-display font-bold text-center mb-12">Perguntas Frequentes</h2>
 
           <div className="bg-brand-card rounded-2xl p-6 border border-brand-pink/20">
             {FAQ_ITEMS.map((item, index) => (
@@ -282,9 +268,7 @@ const Home: React.FC = () => {
       {/* Footer */}
       <footer className="bg-black py-10 border-t border-gray-900 text-center">
         <div className="max-w-4xl mx-auto px-4">
-          <div className="text-2xl font-display font-bold text-brand-pink mb-4">
-            ROBÔ DO JOB ®
-          </div>
+          <div className="text-2xl font-display font-bold text-brand-pink mb-4">ROBÔ DO JOB ®</div>
 
           <p className="text-gray-600 text-sm mb-6 max-w-lg mx-auto">
             O melhor método de criação de modelos de IA voltadas para o público adulto.
@@ -313,7 +297,6 @@ const Home: React.FC = () => {
           </p>
         </div>
       </footer>
-
     </div>
   );
 };
