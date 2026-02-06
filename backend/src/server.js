@@ -216,9 +216,23 @@ app.post("/admin/entitle", async (req, res) => {
   await setEntitlementActive(email, { source: "admin_seed" });
   return res.json({ ok: true, email });
 });
-
 // ====== UI: /acessar (recuperar sessão) ======
-app.get("/acessar", (req, res) => {
+app.get("/acessar", async (req, res) => {
+  // 1) Se já existir sessão válida nesse navegador, manda direto pro conteúdo
+  try {
+    const sid = req.cookies?.rdj_session;
+    if (sid) {
+      const sess = await getSession(sid); // <- vem do store.js
+      if (sess) {
+        res.setHeader("Cache-Control", "no-store");
+        return res.redirect(302, "/conteudo#/");
+      }
+    }
+  } catch (err) {
+    // se der qualquer erro na checagem, só cai no fluxo normal (tela de recuperação)
+  }
+
+  // 2) Fluxo normal: renderiza página de recuperar acesso
   const e = String(req.query?.e || "").toLowerCase();
 
   const msgMap = {
