@@ -5,7 +5,7 @@ import { ShieldCheck, ArrowRight, Zap, Users, BadgeCheck } from "lucide-react";
 const Afiliados: React.FC = () => {
   const goToKirvanoAffiliate = () => {
     // Troque pela URL real do programa de afiliados na Kirvano
-    window.location.href = "https://SEU-LINK-DE-AFILIADO-OU-PAGINA-KIRVANO-AQUI";
+    window.location.href = "https://app.kirvano.com/affiliate/2af98d78-259d-4b6d-b0f7-8e276af94836";
   };
 
   return (
