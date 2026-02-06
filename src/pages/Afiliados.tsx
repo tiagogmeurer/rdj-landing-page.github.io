@@ -19,14 +19,14 @@ const Afiliados: React.FC = () => {
           </div>
 
           <h1 className="text-4xl md:text-6xl font-display font-extrabold leading-tight mb-4">
-            Seja Afiliado do <br />
+            Seja um Afiliado Fundador do <br />
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-pink to-white text-glow">
               Robô do Job
             </span>
           </h1>
 
           <p className="text-gray-300 text-lg md:text-xl max-w-2xl mx-auto">
-            Ganhe comissões de até 70% divulgando o método que está explodindo no Brasil.
+            Ganhe comissões de até 45% divulgando o método que está explodindo no Brasil.
             Você recebe acesso + materiais prontos + link de afiliado.
           </p>
         </div>
