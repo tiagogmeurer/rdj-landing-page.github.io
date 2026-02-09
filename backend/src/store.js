@@ -6,22 +6,37 @@ const RECOVER_PREFIX = "recover:"; // recover:<token> -> { email, createdAt }
 const ENT_PREFIX = "ent:"; // ent:<email> -> { active, email, updatedAt, ... }
 
 function normEmail(email) {
-  return (email || "").trim().toLowerCase();
+  return String(email ?? "").trim().toLowerCase();
 }
+
 
 // =====================
 // Access token (Kirvano)
 // =====================
 
 export async function createAccessToken(token, email, ttlMs) {
-  const key = TOKEN_PREFIX + token;
+  const safeToken = String(token);
+  const safeEmail = normEmail(email);
+
+  // TTL default: 24h se vier inválido
+  const ttl = Number(ttlMs);
+  const safeTtlMs = Number.isFinite(ttl) && ttl > 0 ? ttl : 1000 * 60 * 60 * 24;
+
+  const key = TOKEN_PREFIX + safeToken;
+
   const value = {
-    email: normEmail(email),
+    email: safeEmail,
     createdAt: Date.now(),
     consumed: false,
   };
-  await redis.set(key, value, { ex: Math.ceil(ttlMs / 1000) });
+
+  await redis.set(key, value, {
+    ex: Math.ceil(safeTtlMs / 1000),
+  });
+
+  return safeToken;
 }
+
 
 export async function getAccessToken(token) {
   return await redis.get(TOKEN_PREFIX + token);

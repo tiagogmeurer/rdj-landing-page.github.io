@@ -102,25 +102,43 @@ app.use(
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 
-// ✅ CORS robusto (aceita landing e app; permite requests sem Origin)
-const DEFAULT_ALLOWED = new Set([APP_PUBLIC_BASE_URL, API_PUBLIC_BASE_URL]);
+// ✅ CORS robusto (aceita landing + app + www; permite requests sem Origin)
+const DEFAULT_ALLOWED = new Set([
+  APP_PUBLIC_BASE_URL,
+  API_PUBLIC_BASE_URL,
 
-// Se você definir APP_PUBLIC_ORIGINS, ele vira a fonte de verdade
+  // ✅ domínios reais do seu front
+  "https://www.robodojob.com",
+  "https://robodojob.com",
+  "https://app.robodojob.com",
+]);
+
+// Se você definir APP_PUBLIC_ORIGINS, ele vira a fonte de verdade,
+// mas ainda vamos adicionar o DEFAULT_ALLOWED pra não quebrar nada por engano.
 const ALLOWED_ORIGINS =
   APP_PUBLIC_ORIGINS.length > 0
-    ? new Set(APP_PUBLIC_ORIGINS)
+    ? new Set([...APP_PUBLIC_ORIGINS, ...DEFAULT_ALLOWED])
     : DEFAULT_ALLOWED;
 
-app.use(
-  cors({
-    origin(origin, cb) {
-      if (!origin) return cb(null, true); // curl / server-to-server
-      if (ALLOWED_ORIGINS.has(origin)) return cb(null, true);
-      return cb(new Error("Not allowed by CORS"));
-    },
-    credentials: true,
-  })
-);
+const corsOptions = {
+  origin(origin, cb) {
+    // origin vazio ocorre em curl / server-to-server / alguns fluxos do navegador
+    if (!origin) return cb(null, true);
+
+    if (ALLOWED_ORIGINS.has(origin)) return cb(null, true);
+
+    return cb(new Error("Not allowed by CORS"));
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-KIRVANO-TOKEN", "X-ADMIN-TOKEN"],
+};
+
+// ✅ responde preflight
+app.options("*", cors(corsOptions));
+
+// ✅ aplica CORS
+app.use(cors(corsOptions));
 
 app.use(
   rateLimit({
