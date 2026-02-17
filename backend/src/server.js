@@ -102,7 +102,20 @@ app.use(
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 
-// ✅ CORS robusto (aceita landing + app + www; permite requests sem Origin)
+
+
+
+
+
+
+
+
+
+
+
+
+
+// ✅ CORS robusto (aceita landing + app + www; NÃO derruba o server; permite requests sem Origin)
 const DEFAULT_ALLOWED = new Set([
   APP_PUBLIC_BASE_URL,
   API_PUBLIC_BASE_URL,
@@ -122,16 +135,24 @@ const ALLOWED_ORIGINS =
 
 const corsOptions = {
   origin(origin, cb) {
-    // origin vazio ocorre em curl / server-to-server / alguns fluxos do navegador
-    if (!origin) return cb(null, true);
+    // ✅ origin vazio ocorre em curl / server-to-server
+    // ✅ origin "null" ocorre em alguns webviews / clientes de email / fluxos de abertura de link
+    if (!origin || origin === "null") return cb(null, true);
 
     if (ALLOWED_ORIGINS.has(origin)) return cb(null, true);
 
-    return cb(new Error("Not allowed by CORS"));
+    // ❗ NÃO lançar erro (isso vira 500)
+    // Para origens não permitidas, simplesmente não habilita CORS
+    return cb(null, false);
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-KIRVANO-TOKEN", "X-ADMIN-TOKEN"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "X-KIRVANO-TOKEN",
+    "X-ADMIN-TOKEN",
+  ],
 };
 
 // ✅ responde preflight
@@ -139,6 +160,23 @@ app.options("*", cors(corsOptions));
 
 // ✅ aplica CORS
 app.use(cors(corsOptions));
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 app.use(
   rateLimit({
